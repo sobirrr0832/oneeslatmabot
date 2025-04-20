@@ -15,8 +15,13 @@ load_dotenv()
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Bot tokeni va boshqa o'zgaruvchilar
 TOKEN = os.getenv('TELEGRAM_TOKEN')
+if not TOKEN:
+    raise ValueError("TELEGRAM_TOKEN topilmadi. .env faylini tekshiring yoki muhit o'zgaruvchisini to'g'ri o'rnating")
+
 PORT = int(os.getenv('PORT', 8443))
+HEROKU_APP_NAME = os.getenv('HEROKU_APP_NAME')
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///eslatma_bot.db')
 TIMEZONE = pytz.timezone('Asia/Tashkent')  # O'zbekiston vaqt mintaqasi
 
@@ -25,9 +30,9 @@ MAIN_MENU, ADDING_REMINDER, SET_TITLE, SET_DATE, SET_TIME, REMINDERS_LIST, CONFI
 
 # Ma'lumotlar bazasi bilan ishlash uchun SQLAlchemy
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 
+# SQLAlchemy 2.0 da o'zgarish bor, eskirgan usulni yangilash
 Base = declarative_base()
 
 class User(Base):
@@ -92,24 +97,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     
     # Ma'lumotlar bazasida foydalanuvchini tekshirish yoki qo'shish
     session = Session()
-    db_user = session.query(User).filter_by(telegram_id=user.id).first()
     
-    if not db_user:
-        db_user = User(
-            telegram_id=user.id,
-            username=user.username,
-            first_name=user.first_name
+    try:
+        db_user = session.query(User).filter_by(telegram_id=user.id).first()
+        
+        if not db_user:
+            db_user = User(
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name
+            )
+            session.add(db_user)
+            session.commit()
+        
+        await update.message.reply_text(
+            f"Assalomu alaykum, {user.first_name}! Eslatma botiga xush kelibsiz!\n\n"
+            "Bu bot muhim sanalarda sizga eslatmalar yuboradi. Masalan tug'ilgan kunlar, uchrashuvlar va boshqa tadbirlar haqida.",
+            reply_markup=get_main_menu_keyboard()
         )
-        session.add(db_user)
-        session.commit()
-    
-    session.close()
-    
-    await update.message.reply_text(
-        f"Assalomu alaykum, {user.first_name}! Eslatma botiga xush kelibsiz!\n\n"
-        "Bu bot muhim sanalarda sizga eslatmalar yuboradi. Masalan tug'ilgan kunlar, uchrashuvlar va boshqa tadbirlar haqida.",
-        reply_markup=get_main_menu_keyboard()
-    )
+    except Exception as e:
+        logger.error(f"Start buyrug'ida xatolik: {e}")
+        await update.message.reply_text(
+            "Botni ishga tushirishda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
+        )
+    finally:
+        session.close()
     
     return MAIN_MENU
 
@@ -240,6 +252,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif query.data == 'back_to_list':
         return await list_reminders(update, context)
     
+    elif query.data == 'back_to_menu':
+        await query.edit_message_text(
+            "Bosh menyu:",
+            reply_markup=get_main_menu_keyboard()
+        )
+        return MAIN_MENU
+        
     return MAIN_MENU
 
 async def set_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -452,60 +471,72 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     return MAIN_MENU
 
 def main():
-    # Application yaratish
-    application = Application.builder().token(TOKEN).build()
-    
-    # Conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            MAIN_MENU: [
-                CallbackQueryHandler(button_handler)
-            ],
-            SET_TITLE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, set_title),
-                CallbackQueryHandler(button_handler)
-            ],
-            SET_DATE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, set_date),
-                CallbackQueryHandler(button_handler)
-            ],
-            SET_TIME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, set_time),
-                CallbackQueryHandler(button_handler)
-            ],
-            ADDING_REMINDER: [
-                CallbackQueryHandler(button_handler)
-            ],
-            REMINDERS_LIST: [
-                CallbackQueryHandler(button_handler)
-            ],
-            CONFIRM_DELETE: [
-                CallbackQueryHandler(button_handler)
-            ]
-        },
-        fallbacks=[CommandHandler('help', help_command)]
-    )
-    
-    application.add_handler(conv_handler)
-    application.add_handler(CommandHandler('help', help_command))
-    
-    # Eslatmalarni tekshirish uchun job
-    job_queue = application.job_queue
-    job_queue.run_repeating(check_reminders, interval=60, first=10)
-    
-    # Webhook yoki polling usulida botni ishga tushirish
-    if HEROKU_APP_NAME:
-        # Heroku uchun webhook
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}"
+    # Token mavjudligini tekshirish
+    if not TOKEN:
+        logger.error("TELEGRAM_TOKEN o'rnatilmagan! .env faylini tekshiring yoki muhit o'zgaruvchisini to'g'ri o'rnating")
+        return
+        
+    try:
+        # Application yaratish
+        application = Application.builder().token(TOKEN).build()
+        
+        # Conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                MAIN_MENU: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                SET_TITLE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_title),
+                    CallbackQueryHandler(button_handler)
+                ],
+                SET_DATE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_date),
+                    CallbackQueryHandler(button_handler)
+                ],
+                SET_TIME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_time),
+                    CallbackQueryHandler(button_handler)
+                ],
+                ADDING_REMINDER: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                REMINDERS_LIST: [
+                    CallbackQueryHandler(button_handler)
+                ],
+                CONFIRM_DELETE: [
+                    CallbackQueryHandler(button_handler)
+                ]
+            },
+            fallbacks=[CommandHandler('help', help_command)]
         )
-    else:
-        # Mahalliy ishga tushirish uchun polling
-        application.run_polling()
+        
+        application.add_handler(conv_handler)
+        application.add_handler(CommandHandler('help', help_command))
+        
+        # Eslatmalarni tekshirish uchun job
+        job_queue = application.job_queue
+        job_queue.run_repeating(check_reminders, interval=60, first=10)
+        
+        # Webhook yoki polling usulida botni ishga tushirish
+        logger.info("Bot ishga tushirilmoqda...")
+        if HEROKU_APP_NAME:
+            # Heroku uchun webhook
+            logger.info(f"Webhook rejimida ishga tushirilmoqda: {HEROKU_APP_NAME}")
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=PORT,
+                url_path=TOKEN,
+                webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}"
+            )
+        else:
+            # Mahalliy ishga tushirish uchun polling
+            logger.info("Polling rejimida ishga tushirilmoqda")
+            application.run_polling()
+            
+    except Exception as e:
+        logger.error(f"Botni ishga tushirishda xatolik: {e}")
 
 if __name__ == '__main__':
     main()
