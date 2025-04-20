@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 # Bot tokeni va boshqa o'zgaruvchilar
 TOKEN = os.getenv('TELEGRAM_TOKEN')
+if TOKEN:
+    # Tokendan ortiqcha bo'shliqlar va nochop belgilarni tozalash
+    TOKEN = TOKEN.strip()
 if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN topilmadi. .env faylini tekshiring yoki muhit o'zgaruvchisini to'g'ri o'rnating")
 
@@ -396,7 +399,7 @@ from datetime import datetime as dt
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-# Eslatmalarni tekshirish va yuborish funksiyasi (APScheduler bilan)
+# Eslatmalarni tekshirish va yuborish funksiyasi
 async def check_reminders_task(application):
     now = datetime.datetime.now(TIMEZONE)
     session = Session()
@@ -483,57 +486,57 @@ def main():
         logger.error("TELEGRAM_TOKEN o'rnatilmagan! .env faylini tekshiring yoki muhit o'zgaruvchisini to'g'ri o'rnating")
         return
         
+    # Application yaratish
+    application = Application.builder().token(TOKEN).build()
+    
+    # Conversation handler
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            MAIN_MENU: [
+                CallbackQueryHandler(button_handler)
+            ],
+            SET_TITLE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, set_title),
+                CallbackQueryHandler(button_handler)
+            ],
+            SET_DATE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, set_date),
+                CallbackQueryHandler(button_handler)
+            ],
+            SET_TIME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, set_time),
+                CallbackQueryHandler(button_handler)
+            ],
+            ADDING_REMINDER: [
+                CallbackQueryHandler(button_handler)
+            ],
+            REMINDERS_LIST: [
+                CallbackQueryHandler(button_handler)
+            ],
+            CONFIRM_DELETE: [
+                CallbackQueryHandler(button_handler)
+            ]
+        },
+        fallbacks=[CommandHandler('help', help_command)]
+    )
+    
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler('help', help_command))
+    
+    # APScheduler orqali eslatmalarni tekshirish
+    scheduler = AsyncIOScheduler(job_defaults={'misfire_grace_time': 300})
+    scheduler.add_job(
+        check_reminders_task,
+        IntervalTrigger(minutes=1),
+        id='check_reminders',
+        args=[application]
+    )
+    scheduler.start()
+    
+    # Webhook yoki polling usulida botni ishga tushirish
+    logger.info("Bot ishga tushirilmoqda...")
     try:
-        # Application yaratish
-        application = Application.builder().token(TOKEN).build()
-        
-        # Conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', start)],
-            states={
-                MAIN_MENU: [
-                    CallbackQueryHandler(button_handler)
-                ],
-                SET_TITLE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_title),
-                    CallbackQueryHandler(button_handler)
-                ],
-                SET_DATE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_date),
-                    CallbackQueryHandler(button_handler)
-                ],
-                SET_TIME: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, set_time),
-                    CallbackQueryHandler(button_handler)
-                ],
-                ADDING_REMINDER: [
-                    CallbackQueryHandler(button_handler)
-                ],
-                REMINDERS_LIST: [
-                    CallbackQueryHandler(button_handler)
-                ],
-                CONFIRM_DELETE: [
-                    CallbackQueryHandler(button_handler)
-                ]
-            },
-            fallbacks=[CommandHandler('help', help_command)]
-        )
-        
-        application.add_handler(conv_handler)
-        application.add_handler(CommandHandler('help', help_command))
-        
-     # APScheduler orqali eslatmalarni tekshirish
-scheduler = AsyncIOScheduler()
-scheduler.add_job(
-    check_reminders_task,  # Lambda o'rniga to'g'ridan-to'g'ri funksiyani ishlatamiz
-    IntervalTrigger(minutes=1),
-    id='check_reminders',
-    args=[application]  # Argumentlarni shunday uzatamiz
-)
-scheduler.start()
-        
-        # Webhook yoki polling usulida botni ishga tushirish
-        logger.info("Bot ishga tushirilmoqda...")
         if HEROKU_APP_NAME:
             # Heroku uchun webhook
             logger.info(f"Webhook rejimida ishga tushirilmoqda: {HEROKU_APP_NAME}")
@@ -547,7 +550,6 @@ scheduler.start()
             # Mahalliy ishga tushirish uchun polling
             logger.info("Polling rejimida ishga tushirilmoqda")
             application.run_polling()
-            
     except Exception as e:
         logger.error(f"Botni ishga tushirishda xatolik: {e}")
 
