@@ -492,28 +492,28 @@ def main():
             entry_points=[CommandHandler('start', start)],
             states={
                 MAIN_MENU: [
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ],
                 SET_TITLE: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, set_title),
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ],
                 SET_DATE: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, set_date),
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ],
                 SET_TIME: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, set_time),
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ],
                 ADDING_REMINDER: [
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ],
                 REMINDERS_LIST: [
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ],
                 CONFIRM_DELETE: [
-                    CallbackQueryHandler(button_handler, per_message=True)
+                    CallbackQueryHandler(button_handler)
                 ]
             },
             fallbacks=[CommandHandler('help', help_command)]
