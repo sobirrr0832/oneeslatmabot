@@ -390,16 +390,18 @@ def get_recurring_text(recurring_type):
     else:
         return "Bir martalik"
 
-# Eslatmalarni tekshirish va yuborish
-async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
+# APScheduler orqali eslatmalarni tekshirish
+import time
+from datetime import datetime as dt
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+
+# Eslatmalarni tekshirish va yuborish funksiyasi (APScheduler bilan)
+async def check_reminders_task(application):
     now = datetime.datetime.now(TIMEZONE)
     session = Session()
     
     try:
-        # Bugungi eslatmalarni olish
-        today_start = datetime.datetime.combine(now.date(), datetime.time.min)
-        today_end = datetime.datetime.combine(now.date(), datetime.time.max)
-        
         # Vaqti yetib kelgan va xabar berilmagan eslatmalarni qidirish
         reminders = session.query(Reminder).filter(
             Reminder.date <= now,
@@ -412,45 +414,50 @@ async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
             
             if user:
                 # Eslatma xabarini yuborish
-                await context.bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=f"⏰ *ESLATMA!*\n\n"
-                         f"📝 *{reminder.title}*\n"
-                         f"📅 Sana: {reminder.date.strftime('%d.%m.%Y')}\n"
-                         f"🕒 Vaqt: {reminder.date.strftime('%H:%M')}",
-                    parse_mode='Markdown'
-                )
-                
-                # Eslatma xabar berilganini belgilash
-                reminder.is_notified = True
-                
-                # Agar eslatma takrorlanuvchi bo'lsa, keyingi sanasini belgilash
-                if reminder.is_recurring:
-                    next_date = None
+                try:
+                    await application.bot.send_message(
+                        chat_id=user.telegram_id,
+                        text=f"⏰ *ESLATMA!*\n\n"
+                             f"📝 *{reminder.title}*\n"
+                             f"📅 Sana: {reminder.date.strftime('%d.%m.%Y')}\n"
+                             f"🕒 Vaqt: {reminder.date.strftime('%H:%M')}",
+                        parse_mode='Markdown'
+                    )
                     
-                    if reminder.recurring_type == 'yearly':
-                        next_date = reminder.date + relativedelta(years=1)
-                    elif reminder.recurring_type == 'monthly':
-                        next_date = reminder.date + relativedelta(months=1)
-                    elif reminder.recurring_type == 'weekly':
-                        next_date = reminder.date + relativedelta(weeks=1)
+                    # Eslatma xabar berilganini belgilash
+                    reminder.is_notified = True
                     
-                    if next_date:
-                        # Yangi eslatma yaratish
-                        new_reminder = Reminder(
-                            user_id=reminder.user_id,
-                            title=reminder.title,
-                            date=next_date,
-                            is_recurring=reminder.is_recurring,
-                            recurring_type=reminder.recurring_type,
-                            is_notified=False
-                        )
-                        session.add(new_reminder)
-                
+                    # Agar eslatma takrorlanuvchi bo'lsa, keyingi sanasini belgilash
+                    if reminder.is_recurring:
+                        next_date = None
+                        
+                        if reminder.recurring_type == 'yearly':
+                            next_date = reminder.date + relativedelta(years=1)
+                        elif reminder.recurring_type == 'monthly':
+                            next_date = reminder.date + relativedelta(months=1)
+                        elif reminder.recurring_type == 'weekly':
+                            next_date = reminder.date + relativedelta(weeks=1)
+                        
+                        if next_date:
+                            # Yangi eslatma yaratish
+                            new_reminder = Reminder(
+                                user_id=reminder.user_id,
+                                title=reminder.title,
+                                date=next_date,
+                                is_recurring=reminder.is_recurring,
+                                recurring_type=reminder.recurring_type,
+                                is_notified=False
+                            )
+                            session.add(new_reminder)
+                    
+                except Exception as e:
+                    logger.error(f"Eslatma yuborishda xatolik: {e}")
+                    continue
+                    
                 session.commit()
     
     except Exception as e:
-        logger.error(f"Error checking reminders: {e}")
+        logger.error(f"Eslatmalarni tekshirishda xatolik: {e}")
     finally:
         session.close()
 
@@ -485,28 +492,28 @@ def main():
             entry_points=[CommandHandler('start', start)],
             states={
                 MAIN_MENU: [
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ],
                 SET_TITLE: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, set_title),
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ],
                 SET_DATE: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, set_date),
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ],
                 SET_TIME: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, set_time),
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ],
                 ADDING_REMINDER: [
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ],
                 REMINDERS_LIST: [
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ],
                 CONFIRM_DELETE: [
-                    CallbackQueryHandler(button_handler)
+                    CallbackQueryHandler(button_handler, per_message=True)
                 ]
             },
             fallbacks=[CommandHandler('help', help_command)]
@@ -515,9 +522,14 @@ def main():
         application.add_handler(conv_handler)
         application.add_handler(CommandHandler('help', help_command))
         
-        # Eslatmalarni tekshirish uchun job
-        job_queue = application.job_queue
-        job_queue.run_repeating(check_reminders, interval=60, first=10)
+        # APScheduler orqali eslatmalarni tekshirish
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            lambda: asyncio.create_task(check_reminders_task(application)),
+            IntervalTrigger(minutes=1),
+            id='check_reminders'
+        )
+        scheduler.start()
         
         # Webhook yoki polling usulida botni ishga tushirish
         logger.info("Bot ishga tushirilmoqda...")
