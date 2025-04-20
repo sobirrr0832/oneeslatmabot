@@ -7,6 +7,11 @@ import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+import warnings
+from telegram.warnings import PTBUserWarning
+
+# Suppress PTBUserWarning to avoid cluttering logs
+warnings.filterwarnings('ignore', category=PTBUserWarning)
 
 # .env faylidan sozlamalarni yuklash
 load_dotenv()
