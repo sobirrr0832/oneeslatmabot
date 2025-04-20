@@ -1,12 +1,14 @@
 import os
 import logging
 import datetime
+import time
 from dateutil.relativedelta import relativedelta
 import pytz
 import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.error import TelegramError
 import warnings
 from telegram.warnings import PTBUserWarning
 
@@ -28,10 +30,17 @@ if TOKEN:
 if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN topilmadi. .env faylini tekshiring yoki muhit o'zgaruvchisini to'g'ri o'rnating")
 
-PORT = int(os.getenv('PORT', 8443))
-HEROKU_APP_NAME = os.getenv('HEROKU_APP_NAME')
+PORT = int(os.getenv('PORT', 8080))  # Railway tomonidan taqdim etiladigan port
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')  # Agar maxsus URL o'rnatilgan bo'lsa
+RAILWAY_PUBLIC_DOMAIN = os.getenv('RAILWAY_PUBLIC_DOMAIN')  # Railway tomonidan taqdim etiladigan domen
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///eslatma_bot.db')
 TIMEZONE = pytz.timezone('Asia/Tashkent')  # O'zbekiston vaqt mintaqasi
+
+# Webhook URL ni aniqlash
+if not WEBHOOK_URL and RAILWAY_PUBLIC_DOMAIN:
+    WEBHOOK_URL = f"https://{RAILWAY_PUBLIC_DOMAIN}/{TOKEN}"
+elif not WEBHOOK_URL:
+    logger.warning("WEBHOOK_URL yoki RAILWAY_PUBLIC_DOMAIN o'rnatilmagan, polling rejimi ishlatiladi (faqat mahalliy test uchun).")
 
 # Conversation states
 MAIN_MENU, ADDING_REMINDER, SET_TITLE, SET_DATE, SET_TIME, REMINDERS_LIST, CONFIRM_DELETE = range(7)
@@ -399,8 +408,6 @@ def get_recurring_text(recurring_type):
         return "Bir martalik"
 
 # APScheduler orqali eslatmalarni tekshirish
-import time
-from datetime import datetime as dt
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -485,6 +492,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
     return MAIN_MENU
 
+async def set_webhook(application):
+    """Telegram webhook-ni o'rnatish"""
+    try:
+        await application.bot.deleteWebhook()  # Oldingi webhook-ni o'chirish
+        await application.bot.setWebhook(url=WEBHOOK_URL)
+        logger.info(f"Webhook muvaffaqiyatli o'rnatildi: {WEBHOOK_URL}")
+    except Exception as e:
+        logger.error(f"Webhook o'rnatishda xatolik: {e}")
+        raise e
+
 def main():
     # Token mavjudligini tekshirish
     if not TOKEN:
@@ -542,19 +559,30 @@ def main():
     # Webhook yoki polling usulida botni ishga tushirish
     logger.info("Bot ishga tushirilmoqda...")
     try:
-        if HEROKU_APP_NAME:
-            # Heroku uchun webhook
-            logger.info(f"Webhook rejimida ishga tushirilmoqda: {HEROKU_APP_NAME}")
+        if WEBHOOK_URL:
+            # Railway uchun webhook
+            logger.info(f"Webhook rejimida ishga tushirilmoqda: {WEBHOOK_URL}")
             application.run_webhook(
                 listen="0.0.0.0",
                 port=PORT,
                 url_path=TOKEN,
-                webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}"
+                webhook_url=WEBHOOK_URL
             )
+            # Webhook-ni o'rnatish
+            asyncio.get_event_loop().run_until_complete(set_webhook(application))
         else:
-            # Mahalliy ishga tushirish uchun polling
-            logger.info("Polling rejimida ishga tushirilmoqda")
-            application.run_polling()
+            # Mahalliy test uchun polling (faqat agar webhook URL mavjud bo'lmasa)
+            logger.info("Polling rejimida ishga tushirilmoqda (mahalliy test uchun)")
+            while True:
+                try:
+                    application.run_polling()
+                    break
+                except TelegramError as e:
+                    if "Conflict" in str(e):
+                        logger.warning("Conflict detected, retrying in 5 seconds...")
+                        time.sleep(5)  # Qayta urinishdan oldin kutish
+                    else:
+                        raise e
     except Exception as e:
         logger.error(f"Botni ishga tushirishda xatolik: {e}")
 
