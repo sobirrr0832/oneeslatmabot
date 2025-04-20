@@ -522,14 +522,15 @@ def main():
         application.add_handler(conv_handler)
         application.add_handler(CommandHandler('help', help_command))
         
-        # APScheduler orqali eslatmalarni tekshirish
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            lambda: asyncio.create_task(check_reminders_task(application)),
-            IntervalTrigger(minutes=1),
-            id='check_reminders'
-        )
-        scheduler.start()
+     # APScheduler orqali eslatmalarni tekshirish
+scheduler = AsyncIOScheduler()
+scheduler.add_job(
+    check_reminders_task,  # Lambda o'rniga to'g'ridan-to'g'ri funksiyani ishlatamiz
+    IntervalTrigger(minutes=1),
+    id='check_reminders',
+    args=[application]  # Argumentlarni shunday uzatamiz
+)
+scheduler.start()
         
         # Webhook yoki polling usulida botni ishga tushirish
         logger.info("Bot ishga tushirilmoqda...")
