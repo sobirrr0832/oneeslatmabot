@@ -37,7 +37,7 @@ TIMEZONE = pytz.timezone('Asia/Tashkent')
 
 # Webhook URL ni aniqlash
 if not WEBHOOK_URL and RAILWAY_PUBLIC_DOMAIN:
-    WEBHOOK_URL = f"https://{web-production-915a3.up.railway.app}/{TOKEN}"
+    WEBHOOK_URL = f"https://{web-production-915a3.up.railway.app}/{7789849508:AAH_jKNHQVrbVzVCfq8WMmoxH8fS-lqzg3A}"
 elif not WEBHOOK_URL:
     logger.warning("WEBHOOK_URL yoki RAILWAY_PUBLIC_DOMAIN o'rnatilmagan, polling rejimi ishlatiladi (faqat mahalliy test uchun).")
 
