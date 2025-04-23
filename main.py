@@ -30,16 +30,14 @@ if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN topilmadi. .env faylini tekshiring yoki muhit o'zgaruvchisini to'g'ri o'rnating")
 
 PORT = int(os.getenv('PORT', 8080))
-if not WEBHOOK_URL and RAILWAY_PUBLIC_DOMAIN:
-    WEBHOOK_URL = f"https://{RAILWAY_PUBLIC_DOMAIN}/{TOKEN}"
-elif not WEBHOOK_URL:
-    logger.warning("WEBHOOK_URL yoki RAILWAY_PUBLIC_DOMAIN o'rnatilmagan, polling rejimi ishlatiladi (faqat mahalliy test uchun).")RAILWAY_PUBLIC_DOMAIN = os.getenv('web-production-915a3.up.railway.app')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+RAILWAY_PUBLIC_DOMAIN = os.getenv('RAILWAY_PUBLIC_DOMAIN')
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///eslatma_bot.db')
 TIMEZONE = pytz.timezone('Asia/Tashkent')
 
 # Webhook URL ni aniqlash
 if not WEBHOOK_URL and RAILWAY_PUBLIC_DOMAIN:
-    WEBHOOK_URL = f"https://{web-production-915a3.up.railway.app}/{7789849508:AAH_jKNHQVrbVzVCfq8WMmoxH8fS-lqzg3A}"
+    WEBHOOK_URL = f"https://{RAILWAY_PUBLIC_DOMAIN}/{TOKEN}"
 elif not WEBHOOK_URL:
     logger.warning("WEBHOOK_URL yoki RAILWAY_PUBLIC_DOMAIN o'rnatilmagan, polling rejimi ishlatiladi (faqat mahalliy test uchun).")
 
